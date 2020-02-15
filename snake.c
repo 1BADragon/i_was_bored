@@ -47,6 +47,7 @@ struct snake_node
 {
 	struct point pos;
 	struct snake_node *next;
+    struct snake_node *tail;
 };
 
 static volatile int go;
@@ -123,7 +124,13 @@ int main()
 			break;
 		}
 
-        uint32_t update_time = 400.f * MAX((1. - ((double)score / 10.)), 0) + 25;
+        uint32_t update_time = 200.f * MAX((1. - ((double)score / 20.)), 0) + 50;
+#if 0
+        if(dir == 2 || dir == 3)
+        {
+            update_time = (double)update_time * ((double)old.ws_row / (double)old.ws_col);
+        }
+#endif
 
         int poll_ret = poll(poll_items, 1, update_time);
 
@@ -194,6 +201,7 @@ void make_snake(struct snake_node *head)
 		temp->next = NULL;
 		curr->next = temp;
 		curr = temp;
+        head->tail = curr;
 	}
 }
 
@@ -293,10 +301,10 @@ int check_snake(struct snake_node *head, const struct winsize *w)
     {
         score += 1;
         place_cheese(head, w);
-        struct snake_node *new_node = malloc(sizeof(struct snake_node));
-        new_node->pos = head->pos;
-        new_node->next = head->next;
-        head->next = new_node;
+        struct snake_node *new_node = calloc(1, sizeof(struct snake_node));
+        new_node->pos = head->tail->pos;
+        head->tail->next = new_node;
+        head->tail = new_node;
     }
 	
 	while(curr != NULL)
