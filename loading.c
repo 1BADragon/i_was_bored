@@ -4,8 +4,8 @@
 #include <unistd.h>
 #include <signal.h>
 
-char loading_string[] = "-\\|/";
-int go;
+const char loading_string[] = "-\\|/";
+volatile int go;
 
 void stop(int signo)
 {

@@ -5,8 +5,8 @@
 #include <signal.h>
 #include <termios.h>
 #include <poll.h>
-
-int go;
+#include <stdbool.h>
+#include <time.h>
 
 struct point
 {
@@ -20,22 +20,32 @@ struct snake_node
 	struct snake_node *next;
 };
 
-void stop(int signo)
+
+static volatile int go;
+static size_t score;
+static struct point cheese_loc;
+
+static void stop(int signo)
 {
 	go = 0;
 }
 
-void make_snake(struct snake_node *head); 
-void print_snake(struct snake_node *head);
-void move_snake(struct snake_node *head, int dir);
-int check_snake(struct snake_node *head, struct winsize w);
-int get_arrow();
+static void make_snake(struct snake_node *head);
+static void print_snake(struct snake_node *head);
+static void print_hud(void);
+static void move_snake(struct snake_node *head, int dir);
+static int check_snake(struct snake_node *head, const struct winsize *w);
+static int get_arrow();
+static bool same_loc(const struct point *a, const struct point *b);
+static void place_cheese(const struct snake_node *head, const struct winsize *bounds);
+static void print_cheese(void);
 
 int main()
 {
 	struct winsize old, new;
 	struct snake_node head;
 	struct termios oldt, newt;
+    srand(time(NULL));
 	char *end_message=NULL;
 	//set up
 	ioctl(STDOUT_FILENO, TIOCGWINSZ, &old);
@@ -44,6 +54,7 @@ int main()
 	newt.c_lflag &= ~(ICANON | ECHO);
 	tcsetattr(STDIN_FILENO, TCSANOW, &newt);
 	go = 1;
+    score = 0;
 	signal(SIGINT, stop); 
 	printf("\e[?25l"); //disable cursor	
 	if(old.ws_col < 24 || old.ws_row < 12)
@@ -56,6 +67,7 @@ int main()
 	head.pos.y = old.ws_row/2;
 	head.next = NULL;
 	make_snake(&head);
+    place_cheese(&head, &old);
 	char input;
 	int dir = 0;
 	struct pollfd poll_items[1] = {{fd: 0, events: POLLIN}};
@@ -92,21 +104,29 @@ int main()
 		}
 
 		move_snake(&head, dir);
-		if(check_snake(&head, old))
+        if(check_snake(&head, &old))
 		{
 			end_message = "Good Game\n";
 			break;
 		}
 		printf("\e[2J");//clear screen
 		print_snake(&head);
+        print_hud();
+        print_cheese();
 		
 		fflush(stdout); //flush stdout
+
 		usleep(300000);
 	}
 	printf("\e[2J\e[0;0H\e[?25h"); //clear screen reset cursor pos and show cursor
 	tcsetattr( STDIN_FILENO, TCSANOW, &oldt);
+    printf("Score: %zu\n", score);
+
 	if(end_message != NULL)
-		printf("%s\n", end_message); 
+    {
+        printf("%s\n", end_message);
+    }
+
 	return 1;
 }
 
@@ -131,6 +151,11 @@ void print_snake(struct snake_node *head)
 		return;
 	printf("\e[%d;%dH#", head->pos.y, head->pos.x);
 	print_snake(head->next);
+}
+
+void print_hud()
+{
+    printf("\e[0;0HScore: %zu", score);
 }
 
 void step_snake(struct snake_node *head, struct point move_too)
@@ -166,18 +191,31 @@ void move_snake(struct snake_node *head, int dir)
 }
 
 
-int check_snake(struct snake_node *head, struct winsize w)
+int check_snake(struct snake_node *head, const struct winsize *w)
 {
 	struct snake_node *curr = head->next;
-	if(head->pos.x <= 0 || head->pos.x >= w.ws_col || 
-			head->pos.y <= 0 || head->pos.y >= w.ws_row)
+    if(head->pos.x <= 0 || head->pos.x >= w->ws_col ||
+            head->pos.y <= 0 || head->pos.y >= w->ws_row)
 	{
 		return 1;
 	}
+
+    if(same_loc(&head->pos, &cheese_loc))
+    {
+        score += 1;
+        place_cheese(head, w);
+        struct snake_node *new_node = malloc(sizeof(struct snake_node));
+        new_node->pos = head->pos;
+        new_node->next = head->next;
+        head->next = new_node;
+    }
 	
 	while(curr != NULL)
-	{
-		
+    {
+        if(same_loc(&head->pos, &curr->pos))
+        {
+            return 1;
+        }
 		curr = curr->next;
 	}
 	return 0;
@@ -194,4 +232,44 @@ int get_arrow()
 			return -1;
 	}
 	return -1;
+}
+
+bool same_loc(const struct point *a, const struct point *b)
+{
+    return (a->x == b->x) && (a->y == b->y);
+}
+
+void place_cheese(const struct snake_node *head, const struct winsize *bounds)
+{
+    const struct snake_node *curr;
+    bool good = false;
+
+    while(true)
+    {
+        cheese_loc.x = rand() % bounds->ws_col;
+        cheese_loc.y = rand() % bounds->ws_row;
+
+        curr = head;
+
+        good = true;
+        while(curr != NULL)
+        {
+            if(same_loc(&curr->pos, &cheese_loc))
+            {
+                good = false;
+                break;
+            }
+            curr = curr->next;
+        }
+
+        if(good)
+        {
+            return;
+        }
+    }
+}
+
+void print_cheese(void)
+{
+    printf("\e[%d;%dH$", cheese_loc.y, cheese_loc.x);
 }
